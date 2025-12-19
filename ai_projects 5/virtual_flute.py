@@ -29,6 +29,7 @@ class FluteNote:
         self.frequency = frequency
         self.hole_positions = hole_positions
         self.color = color
+        self.active_color = tuple(min(c + 100, 255) for c in color)  # Brighter when active
         self.is_playing = False
         self.last_play_time = 0
         self.cooldown = 0.1
@@ -38,62 +39,88 @@ class FluteNote:
         self.sound.set_volume(1.0)
 
     def _generate_flute_sound(self, frequency):
-        """Generate realistic flute sound using sine waves with harmonics."""
+        """Generate realistic flute sound using advanced synthesis."""
         sample_rate = 44100
-        duration = 2.5  # Longer sustain for flute
+        duration = 3.0  # Longer sustain
         samples = int(sample_rate * duration)
 
         wave = np.zeros(samples)
 
-        # Flute harmonics (strong even harmonics, more complex than before)
-        harmonics = [
-            (1.0, 1.0),      # Fundamental
-            (2.0, 0.9),      # 2nd (very strong in flute)
-            (3.0, 0.4),      # 3rd
-            (4.0, 0.7),      # 4th (strong)
-            (5.0, 0.3),      # 5th
-            (6.0, 0.5),      # 6th
-            (7.0, 0.2),      # 7th
-            (8.0, 0.3),      # 8th
+        # Advanced flute synthesis with formants
+        # Flute formants: around 1kHz, 2.5kHz, 4kHz
+        formants = [
+            (1.0, 1.0, 0.1),    # Fundamental
+            (2.0, 0.8, 0.05),   # 2nd harmonic
+            (3.0, 0.4, 0.03),   # 3rd
+            (4.0, 0.6, 0.02),   # 4th
+            (5.0, 0.3, 0.015),  # 5th
+            (6.0, 0.4, 0.01),   # 6th
+            (7.0, 0.2, 0.008),  # 7th
+            (8.0, 0.25, 0.006), # 8th
         ]
+
+        # Formant frequencies for flute-like timbre
+        formant_freqs = [1000, 2500, 4000]
+        formant_bws = [100, 200, 300]
 
         for i in range(samples):
             t = i / sample_rate
 
-            # Flute envelope (smooth attack, slow decay, more realistic)
-            if t < 0.08:
-                envelope = t / 0.08  # Slower attack
-            elif t < 0.2:
+            # Advanced envelope with multiple stages
+            if t < 0.02:
+                envelope = t / 0.02  # Very fast attack
+            elif t < 0.1:
+                envelope = 1.0 + 0.2 * (t - 0.02) / 0.08  # Slight overshoot
+            elif t < 0.3:
                 envelope = 1.0  # Sustain
             else:
-                envelope = np.exp(-0.3 * (t - 0.2))  # Slower decay
+                envelope = np.exp(-0.8 * (t - 0.3))  # Decay
 
-            # Add harmonics with slight phase variation
-            for harmonic_num, amplitude in harmonics:
+            # Generate base wave with harmonics
+            base_wave = 0
+            for harmonic_num, amplitude, phase_offset in formants:
                 freq = frequency * harmonic_num
-                phase = np.sin(2 * np.pi * freq * t + harmonic_num * 0.1)
-                wave[i] += amplitude * phase
+                base_wave += amplitude * np.sin(2 * np.pi * freq * t + phase_offset)
 
-            wave[i] *= envelope
+            # Apply formant filtering for realistic timbre
+            filtered_wave = base_wave
+            for f_freq, f_bw in zip(formant_freqs, formant_bws):
+                # Simple formant enhancement
+                formant_gain = 1 + 0.5 * np.exp(-((freq - f_freq) / f_bw)**2)
+                filtered_wave *= formant_gain
 
-        # Add breath noise (more subtle for flute)
-        breath_noise = np.random.randn(int(sample_rate * 0.15)) * 0.08
-        breath_envelope = np.linspace(0.3, 0, len(breath_noise))
-        wave[:len(breath_noise)] += breath_noise * breath_envelope
+            wave[i] = filtered_wave * envelope
 
-        # Add slight vibrato
-        vibrato_rate = 5.0  # Hz
-        vibrato_depth = 0.005
+        # Add realistic breath noise and turbulence
+        # Initial breath burst
+        breath_samples = int(sample_rate * 0.05)
+        breath_noise = np.random.randn(breath_samples) * 0.15
+        breath_envelope = np.exp(-np.linspace(0, 3, breath_samples))
+        wave[:breath_samples] += breath_noise * breath_envelope
+
+        # Subtle continuous breath
+        continuous_breath = np.random.randn(samples) * 0.02
+        breath_env = np.exp(-t * 0.5)  # Fade out
+        wave += continuous_breath * breath_env
+
+        # Add vibrato
+        vibrato_rate = 5.5  # Slightly faster than typical
+        vibrato_depth = 0.008
         vibrato = 1 + vibrato_depth * np.sin(2 * np.pi * vibrato_rate * np.arange(samples) / sample_rate)
         wave *= vibrato
 
-        # Normalize
+        # Add subtle pitch variations (microtonal instability)
+        pitch_variation = 1 + 0.001 * np.sin(2 * np.pi * 12 * np.arange(samples) / sample_rate)
+        # This would require resampling, so skip for simplicity
+
+        # Normalize and add warmth
+        wave = np.tanh(wave * 0.8)  # Soft clipping for warmth
         max_val = np.max(np.abs(wave))
         if max_val > 0:
             wave = wave / max_val
 
         # Convert to audio
-        wave = np.int16(wave * 32767 * 0.8)
+        wave = np.int16(wave * 32767 * 0.85)
         stereo_wave = np.column_stack((wave, wave))
 
         return pygame.sndarray.make_sound(stereo_wave)
@@ -127,23 +154,36 @@ class FluteNote:
             return True
         return False
 
-    def draw(self, frame):
+    def draw(self, frame, is_active=False):
         """Draw flute holes and note label."""
+        current_color = self.active_color if is_active else self.color
+
         for i, (hole_x, hole_y) in enumerate(self.hole_positions):
-            # Draw bigger hole
-            cv2.circle(frame, (hole_x, hole_y), 25, self.color, 3)
-            cv2.circle(frame, (hole_x, hole_y), 15, self.color, -1)
+            # Draw bigger hole with glow effect when active
+            if is_active:
+                # Outer glow
+                cv2.circle(frame, (hole_x, hole_y), 30, (255, 255, 0), 2)
+                cv2.circle(frame, (hole_x, hole_y), 28, current_color, -1)
+                # Inner hole
+                cv2.circle(frame, (hole_x, hole_y), 25, (50, 50, 50), -1)
+                cv2.circle(frame, (hole_x, hole_y), 20, current_color, 2)
+            else:
+                cv2.circle(frame, (hole_x, hole_y), 25, current_color, 3)
+                cv2.circle(frame, (hole_x, hole_y), 15, current_color, -1)
 
             # Hole number
+            text_color = (255, 255, 255) if not is_active else (0, 0, 0)
             cv2.putText(frame, str(i+1), (hole_x - 8, hole_y + 8),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
 
-        # Draw note label above the first hole
+        # Draw note label with highlight when active
         if self.hole_positions:
-            label_x = self.hole_positions[0][0] - 20
-            label_y = self.hole_positions[0][1] - 40
+            label_x = self.hole_positions[0][0] - 25
+            label_y = self.hole_positions[0][1] - 45
+            font_scale = 1.0 if is_active else 0.8
+            font_thickness = 3 if is_active else 2
             cv2.putText(frame, self.note_name, (label_x, label_y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
 
 
 class VirtualFlute:
@@ -159,11 +199,15 @@ class VirtualFlute:
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,  # One hand for flute
+            max_num_hands=2,  # Both hands for complex fingerings
             min_detection_confidence=0.6,
             min_tracking_confidence=0.6
         )
         self.mp_draw = mp.solutions.drawing_utils
+
+        # Track current playing note
+        self.current_note = None
+        self.last_note_time = 0
 
         # Initialize camera
         self.cap = cv2.VideoCapture(0)
@@ -213,7 +257,7 @@ class VirtualFlute:
 
         return notes
 
-    def process_hand_landmarks(self, hand_landmarks, frame):
+    def process_hand_landmarks(self, hand_landmarks, frame, hand_label):
         """Process hand for finger positions over holes."""
         # Get fingertip positions (index, middle, ring, pinky)
         finger_tips = [8, 12, 16, 20]  # Landmark indices
@@ -225,26 +269,73 @@ class VirtualFlute:
             y = int(tip.y * self.frame_height)
             finger_positions.append((x, y))
 
-            # Draw fingertips
-            cv2.circle(frame, (x, y), 8, (0, 255, 0), -1)
+            # Draw fingertips with hand-specific colors
+            hand_color = (0, 255, 0) if hand_label == "Right" else (255, 0, 255)
+            cv2.circle(frame, (x, y), 10, hand_color, -1)
+            cv2.circle(frame, (x, y), 12, (255, 255, 255), 2)
 
-        # Check which note to play
+        return finger_positions
+
+    def combine_hands_and_play(self, all_finger_positions):
+        """Combine fingers from both hands and determine which note to play."""
+        # Check which note matches the current finger configuration
         for note in self.notes:
-            if note.check_fingers(finger_positions):
-                note.play()
-                break
+            if note.check_fingers(all_finger_positions):
+                if note != self.current_note:
+                    note.play()
+                    self.current_note = note
+                    self.last_note_time = time.time()
+                return note
+        return None
 
-    def draw_flute(self, frame):
-        """Draw the virtual flute."""
-        # Draw flute body (horizontal line)
+    def draw_flute(self, frame, current_note=None):
+        """Draw the virtual flute with enhanced UI."""
+        # Add semi-transparent overlay for better contrast
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (self.frame_width, self.frame_height), (0, 0, 0), -1)
+        cv2.addWeighted(frame, 0.7, overlay, 0.3, 0, frame)
+
+        # Draw flute body (horizontal line with 3D effect)
         flute_y = int(self.frame_height * 0.6)
         start_x = int(self.frame_width * 0.15)
         end_x = int(self.frame_width * 0.85)
-        cv2.line(frame, (start_x, flute_y), (end_x, flute_y), (139, 69, 19), 12)
+
+        # Shadow
+        cv2.line(frame, (start_x + 3, flute_y + 3), (end_x + 3, flute_y + 3), (0, 0, 0), 16)
+        # Main body
+        cv2.line(frame, (start_x, flute_y), (end_x, flute_y), (139, 69, 19), 14)
+        # Highlight
+        cv2.line(frame, (start_x, flute_y - 2), (end_x, flute_y - 2), (200, 120, 80), 2)
 
         # Draw all note holes
         for note in self.notes:
-            note.draw(frame)
+            is_active = (note == current_note)
+            note.draw(frame, is_active)
+
+        # Draw title
+        cv2.putText(frame, "VIRTUAL FLUTE", (int(self.frame_width * 0.4), 40),
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+        cv2.putText(frame, "Position fingers over holes to play", (int(self.frame_width * 0.35), 80),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+        # Show current note being played
+        if current_note:
+            cv2.putText(frame, f"Now Playing: {current_note.note_name}",
+                       (int(self.frame_width * 0.4), self.frame_height - 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 3)
+
+        # Instructions
+        instructions = [
+            "Use both hands for complex fingerings",
+            "Green fingertips: Right hand",
+            "Pink fingertips: Left hand",
+            "Press 'Q' to quit"
+        ]
+
+        for i, instruction in enumerate(instructions):
+            y_pos = self.frame_height - 120 + i * 25
+            cv2.putText(frame, instruction, (20, y_pos),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
 
     def run(self):
         """Main application loop."""
@@ -262,10 +353,8 @@ class VirtualFlute:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.hands.process(rgb_frame)
 
-            # Draw flute
-            self.draw_flute(frame)
-
-            # Process hand landmarks
+            # Collect fingers from all detected hands
+            all_finger_positions = []
             if results.multi_hand_landmarks:
                 for hand_landmarks, handedness in zip(results.multi_hand_landmarks,
                                                      results.multi_handedness):
@@ -273,13 +362,24 @@ class VirtualFlute:
                     self.mp_draw.draw_landmarks(frame, hand_landmarks,
                                               self.mp_hands.HAND_CONNECTIONS)
 
-                    # Process for flute playing
-                    self.process_hand_landmarks(hand_landmarks, frame)
+                    # Process hand and collect finger positions
+                    hand_label = handedness.classification[0].label
+                    finger_positions = self.process_hand_landmarks(hand_landmarks, frame, hand_label)
+                    all_finger_positions.extend(finger_positions)
 
                     # Label hand
-                    hand_label = handedness.classification[0].label
-                    cv2.putText(frame, hand_label, (10, 50),
+                    cv2.putText(frame, hand_label, (10, 50 + (0 if hand_label == "Right" else 30)),
                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+            # Determine and play current note
+            current_note = self.combine_hands_and_play(all_finger_positions)
+
+            # Clear current note if no fingers detected for a while
+            if not all_finger_positions and time.time() - self.last_note_time > 0.5:
+                self.current_note = None
+
+            # Draw flute with current note highlight
+            self.draw_flute(frame, current_note)
 
             # Display FPS
             current_time = time.time()
