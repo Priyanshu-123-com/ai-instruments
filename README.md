@@ -7,6 +7,8 @@ A collection of virtual musical instruments powered by AI.
 - `virtual_guitar.py` - Virtual guitar implementation
 - `virtual_piano.py` - Virtual piano implementation
 - `virtual_drum_set.py` - Virtual drum set implementation
+- `virtual_flute.py` - Virtual flute implementation
+- `virtual_tabla.py` - Virtual tabla implementation
 - `requirements.txt` - Python dependencies
 
 ## Installation
