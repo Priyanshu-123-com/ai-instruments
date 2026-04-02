@@ -166,21 +166,21 @@ class GuitarString:
             draw_color = self.color
         
         # Draw string with shadow
-        shadow_offset = 2
-        cv2.line(frame, 
-                (int(self.x1 + perp_x + shadow_offset), int(self.y1 + perp_y + shadow_offset)),
-                (int(self.x2 + perp_x + shadow_offset), int(self.y2 + perp_y + shadow_offset)),
-                (0, 0, 0), thickness + 1)
-        
+        # Laser Core
         cv2.line(frame, 
                 (int(self.x1 + perp_x), int(self.y1 + perp_y)),
                 (int(self.x2 + perp_x), int(self.y2 + perp_y)),
                 draw_color, thickness)
+        # Laser Glow
+        cv2.line(frame, 
+                (int(self.x1 + perp_x), int(self.y1 + perp_y)),
+                (int(self.x2 + perp_x), int(self.y2 + perp_y)),
+                (255, 255, 255), 1)
         
         # Draw note label at the start
         cv2.putText(frame, self.note_name, 
-                   (self.x1 - 30, self.y1 + 5),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                   (self.x1 - 35, self.y1 + 5),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, draw_color, 2)
 
 
 class VirtualGuitar:
@@ -230,12 +230,12 @@ class VirtualGuitar:
         
         # Standard tuning frequencies
         notes = [
-            ('E2', 82.41, (200, 100, 100)),   # Low E (thickest)
-            ('A2', 110.00, (220, 120, 100)),  # A
-            ('D3', 146.83, (230, 150, 100)),  # D
-            ('G3', 196.00, (200, 180, 100)),  # G
-            ('B3', 246.94, (180, 200, 120)),  # B
-            ('E4', 329.63, (150, 220, 150)),  # High E (thinnest)
+            ('E2', 82.41, (0, 0, 255)),   # Red Laser
+            ('A2', 110.00, (0, 128, 255)),  # Orange Laser
+            ('D3', 146.83, (0, 255, 255)),  # Yellow/Cyan Laser
+            ('G3', 196.00, (0, 255, 0)),  # Green Laser
+            ('B3', 246.94, (255, 0, 255)),  # Magenta Laser
+            ('E4', 329.63, (255, 0, 128)),  # Purple Laser
         ]
         
         # Position strings across middle of screen
@@ -301,6 +301,53 @@ class VirtualGuitar:
         
         # Store position
         self.prev_hand_positions[hand_label] = (tip_x, tip_y, current_time)
+
+    def draw_hand_landmarks_styled(self, frame, hand_landmarks, hand_label):
+        """Draw hands with a futuristic neon style."""
+        h, w, c = frame.shape
+        connections = self.mp_hands.HAND_CONNECTIONS
+        
+        if hand_label == "Right":
+            base_color = (255, 0, 255) # Magenta
+        else:
+            base_color = (255, 255, 0) # Cyan
+            
+        landmarks = hand_landmarks.landmark
+        valid_connections = [
+            (start, end) for start, end in connections 
+            if 0 <= start < len(landmarks) and 0 <= end < len(landmarks)
+        ]
+        
+        for start_idx, end_idx in valid_connections:
+            start_point = landmarks[start_idx]
+            end_point = landmarks[end_idx]
+            x1, y1 = int(start_point.x * w), int(start_point.y * h)
+            x2, y2 = int(end_point.x * w), int(end_point.y * h)
+            
+            cv2.line(frame, (x1, y1), (x2, y2), (base_color[0]//2, base_color[1]//2, base_color[2]//2), 4)
+            cv2.line(frame, (x1, y1), (x2, y2), base_color, 2)
+            
+        for i, lm in enumerate(landmarks):
+            cx, cy = int(lm.x * w), int(lm.y * h)
+            if i in [4, 8, 12, 16, 20]:
+                radius = 8
+                color = (255, 255, 255)
+                cv2.circle(frame, (cx, cy), radius + 2, base_color, 2)
+            else:
+                radius = 4
+                color = base_color
+            cv2.circle(frame, (cx, cy), radius, color, -1)
+
+    def draw_ui_overlay(self, frame):
+        """Draw modern HUD overlay."""
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (self.frame_width, 60), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        cv2.line(frame, (0, 60), (self.frame_width, 60), (255, 0, 255), 2)
+        cv2.putText(frame, "LASER GUITAR // AI STRINGS", (30, 40), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame, "STRUM THE BEAMS | 'Q' TO EXIT", (self.frame_width - 450, 40), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
     
     def draw_guitar_body(self, frame):
         """Draw simplified guitar body/neck."""
@@ -310,14 +357,20 @@ class VirtualGuitar:
         neck_x2 = int(self.frame_width * 0.8)
         neck_y2 = int(self.frame_height * 0.75)
         
-        # Neck background (wood texture simulation)
-        for i in range(20):
-            wood_shade = 60 + i * 2
-            cv2.rectangle(frame, 
-                         (neck_x1 + i, neck_y1 + i),
-                         (neck_x2 - i, neck_y2 - i),
-                         (wood_shade // 3, wood_shade // 2, wood_shade),
-                         2)
+        # Neck background (Holographic Grid)
+        # Transparent filled rectangle
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (neck_x1, neck_y1), (neck_x2, neck_y2), (50, 30, 50), -1)
+        cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
+        
+        # Border
+        cv2.rectangle(frame, (neck_x1, neck_y1), (neck_x2, neck_y2), (100, 50, 100), 2)
+        
+        for i in range(0, neck_y2 - neck_y1, 20):
+             cv2.line(frame, 
+                     (neck_x1, neck_y1 + i),
+                     (neck_x2, neck_y1 + i),
+                     (60, 40, 60), 1)
         
         # Fret markers
         fret_positions = [0.25, 0.4, 0.55, 0.7, 0.85]
@@ -343,8 +396,9 @@ class VirtualGuitar:
             # Dark stage background
             overlay = np.zeros_like(frame)
             for y in range(self.frame_height):
-                darkness = int(20 + (y / self.frame_height) * 15)
-                overlay[y, :] = [darkness // 4, darkness // 3, darkness // 2]
+                # Deep Space Gradient
+                v = int((y / self.frame_height) * 30)
+                overlay[y, :] = [v + 10, v, v + 20]
             
             frame = cv2.addWeighted(frame, 0.35, overlay, 0.65, 0)
             
@@ -366,20 +420,12 @@ class VirtualGuitar:
                     if results.multi_handedness:
                         hand_label = results.multi_handedness[idx].classification[0].label
                     
-                    self.mp_draw.draw_landmarks(
-                        frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_draw.DrawingSpec(color=(0, 255, 150), thickness=2, circle_radius=3),
-                        self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
-                    )
+                    self.draw_hand_landmarks_styled(frame, hand_landmarks, hand_label)
                     
                     self.process_hand_landmarks(hand_landmarks, frame, hand_label)
             
-            # Instructions
-            cv2.rectangle(frame, (0, 0), (self.frame_width, 90), (0, 0, 0), -1)
-            cv2.putText(frame, "AI VIRTUAL GUITAR - Strum Across the Strings!", 
-                       (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-            cv2.putText(frame, "Move your finger across strings to play | Press 'Q' to Quit", 
-                       (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Instructions (Replaced by HUD)
+            self.draw_ui_overlay(frame)
             
             cv2.imshow("Virtual Guitar", frame)
             

@@ -40,11 +40,11 @@ class PianoKey:
         
         # Colors
         if is_black:
-            self.color = (30, 30, 35)
-            self.pressed_color = (80, 80, 120)
+            self.color = (20, 20, 30) # Dark base
+            self.pressed_color = (0, 255, 255) # Cyan glow
         else:
-            self.color = (250, 250, 255)
-            self.pressed_color = (200, 220, 255)
+            self.color = (240, 240, 255) # White base
+            self.pressed_color = (255, 0, 255) # Magenta glow
         
         # Generate piano sound
         self.sound = self._generate_piano_sound(frequency)
@@ -162,10 +162,14 @@ class PianoKey:
                          (self.x + self.width - 2, self.y + 15), 
                          (100, 100, 120), -1)
             
-            # Border
+            # Border - Neon Blue
             cv2.rectangle(frame, (self.x, self.y), 
                          (self.x + self.width, self.y + self.height), 
-                         (0, 0, 0), 2)
+                         (50, 50, 50), 2)
+            if self.is_pressed:
+                 cv2.rectangle(frame, (self.x, self.y), 
+                         (self.x + self.width, self.y + self.height), 
+                         (0, 255, 255), 2) # Cyan active border
         
         else:
             # White key - full height
@@ -201,8 +205,9 @@ class PianoKey:
             text_size = cv2.getTextSize(self.note_name, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
             text_x = self.x + (self.width - text_size[0]) // 2
             text_y = self.y + self.height - 10
+            # Note label at bottom
             cv2.putText(frame, self.note_name, (text_x, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
         
         # Glow when pressed
         if self.is_pressed:
@@ -363,6 +368,53 @@ class VirtualPiano:
                 if not key.is_black and key.check_collision(tip_x, tip_y):
                     key.press(velocity)
                     return
+
+    def draw_hand_landmarks_styled(self, frame, hand_landmarks, hand_label):
+        """Draw hands with a futuristic neon style."""
+        h, w, c = frame.shape
+        connections = self.mp_hands.HAND_CONNECTIONS
+        
+        if hand_label == "Right":
+            base_color = (255, 0, 255) # Magenta
+        else:
+            base_color = (255, 255, 0) # Cyan
+            
+        landmarks = hand_landmarks.landmark
+        valid_connections = [
+            (start, end) for start, end in connections 
+            if 0 <= start < len(landmarks) and 0 <= end < len(landmarks)
+        ]
+        
+        for start_idx, end_idx in valid_connections:
+            start_point = landmarks[start_idx]
+            end_point = landmarks[end_idx]
+            x1, y1 = int(start_point.x * w), int(start_point.y * h)
+            x2, y2 = int(end_point.x * w), int(end_point.y * h)
+            
+            cv2.line(frame, (x1, y1), (x2, y2), (base_color[0]//2, base_color[1]//2, base_color[2]//2), 4)
+            cv2.line(frame, (x1, y1), (x2, y2), base_color, 2)
+            
+        for i, lm in enumerate(landmarks):
+            cx, cy = int(lm.x * w), int(lm.y * h)
+            if i in [4, 8, 12, 16, 20]:
+                radius = 8
+                color = (255, 255, 255)
+                cv2.circle(frame, (cx, cy), radius + 2, base_color, 2)
+            else:
+                radius = 4
+                color = base_color
+            cv2.circle(frame, (cx, cy), radius, color, -1)
+
+    def draw_ui_overlay(self, frame):
+        """Draw modern HUD overlay."""
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (self.frame_width, 60), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        cv2.line(frame, (0, 60), (self.frame_width, 60), (0, 255, 0), 2)
+        cv2.putText(frame, "NEON PIANO // AI SYNTH", (30, 40), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame, "INDEX FINGER TO PLAY | 'Q' TO EXIT", (self.frame_width - 450, 40), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
     
     def run(self):
         """Main application loop."""
@@ -377,8 +429,9 @@ class VirtualPiano:
             # Dark concert hall background
             overlay = np.zeros_like(frame)
             for y in range(self.frame_height):
-                darkness = int(15 + (y / self.frame_height) * 20)
-                overlay[y, :] = [darkness // 4, darkness // 3, darkness // 2]
+                # Cyber gradient (Black to Deep Blue)
+                v = int((y / self.frame_height) * 40)
+                overlay[y, :] = [v + 20, v + 10, v + 30]
             
             frame = cv2.addWeighted(frame, 0.3, overlay, 0.7, 0)
             
@@ -402,20 +455,12 @@ class VirtualPiano:
                     if results.multi_handedness:
                         hand_label = results.multi_handedness[idx].classification[0].label
                     
-                    self.mp_draw.draw_landmarks(
-                        frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_draw.DrawingSpec(color=(0, 255, 150), thickness=2, circle_radius=3),
-                        self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
-                    )
+                    self.draw_hand_landmarks_styled(frame, hand_landmarks, hand_label)
                     
                     self.process_hand_landmarks(hand_landmarks, frame, hand_label)
             
-            # Instructions
-            cv2.rectangle(frame, (0, 0), (self.frame_width, 80), (0, 0, 0), -1)
-            cv2.putText(frame, "AI VIRTUAL PIANO - Tap Keys with Your Fingers!", 
-                       (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-            cv2.putText(frame, "Press 'Q' to Quit", 
-                       (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Instructions (Replaced by HUD)
+            self.draw_ui_overlay(frame)
             
             cv2.imshow("Virtual Piano", frame)
             
